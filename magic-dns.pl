@@ -8,7 +8,10 @@ use Data::Dumper;
 my ($sock, $buf, $host, $MAXLEN, $PORTNO);
 
 $MAXLEN = 1024;
-$PORTNO = 53;
+$PORTNO = 50001;
+
+# Auto-flush output
+$| = 1;
 
 sub split_name
 {
@@ -158,7 +161,7 @@ sub main
 				)
 				or die "socket: $@";
 
-	print "Awaiting UDP messages on port $PORTNO\n";
+	print "DNSMagic: Awaiting UDP messages on port $PORTNO\n";
 
 	while ($sock->recv ($buf, $MAXLEN)) {
 
@@ -171,7 +174,7 @@ sub main
 
 		$ipaddr = sprintf "%d.%d.%d.%d", unpack ("C4", $ipaddr);
 
-		printf "Client $ipaddr:$port ($host) sent %d bytes\n", length ($buf);
+		# printf "Client $ipaddr:$port ($host) sent %d bytes\n", length ($buf);
 
 		my ($txn, $flags, $questions, $answers, $auths, $adds, $query, $qtype, $qclass) = unpack ("n6Z*n2", $buf);
 		my $f1 = ($flags >> 15) &  1;
@@ -189,33 +192,33 @@ sub main
 		my $reply;
 		if ($qtype == 1) {		# A record
 			# 1.2.3.4
-			$answers     = 0;
+			$answers     = 1;
 			if ($answers) {
-				$flags       = 0b1000010100000000;
+				$flags = 0b1000010100000000;
 			} else {
-				$flags       = 0b1000010100000011;
+				$flags = 0b1000010100000011;
 			}
 			$auths       = 0;
 			$adds        = 0;
 			my $name_ref = 0xC00C;
 			my $ttl      = 60;
 			my $data_len = 4;
-			my $addr     = 0x01020304;
+			my $addr     = (rand(256) << 24) + (rand(256) << 16) + (rand(256) << 8) + rand(256);
 
 			$reply  = dns_header    ($txn, $flags, $questions, $answers, $auths, $adds);
 			$reply .= dns_query     ($query, $qtype, $qclass);
 			if ($answers) {
-				$reply .= dns_answer    ($name_ref, $qtype, $qclass, $ttl, $data_len, $addr);
+				$reply .= dns_answer ($name_ref, $qtype, $qclass, $ttl, $data_len, $addr);
 			}
 			if ($auths) {
 				$reply .= dns_authority ();
 			}
 			
 			if ($adds) {
-				$reply .= chr(0x00);
-				$reply .= chr(0x00);
+				$reply .= chr(0x00);	# null string
+				$reply .= chr(0x00);	# RR 41 (Option)
 				$reply .= chr(0x29);
-				$reply .= chr(0x04);
+				$reply .= chr(0x04);	# Payload size 0x400 (1024 bytes)
 				$reply .= chr(0x00);
 				$reply .= chr(0x00);
 				$reply .= chr(0x00);
@@ -248,4 +251,3 @@ sub main
 
 main();
 
-#print xd dns_authority();

@@ -15,9 +15,18 @@ check mail
 check contacts
 get password
 
+set password? (on temporary account)
+
 port knocking / generate one-time-password
 
 create/enable temporary email address (with a timeout)
+
+X.flatcap.org => x.sh [params/env]
+
+hike.russon.org
+	any requests will be cached
+	need NS -> tunnel (like iodine)
+	alternatively set *.hike.russon.org TTL to 5 seconds
 
 ---------------------------------------------------------------------
 HIKES
