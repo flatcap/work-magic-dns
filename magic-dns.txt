@@ -1,0 +1,54 @@
+Magic dns
+
+Intercept dns requests on russon.org
+
+filter out specially prepared dns queries and run external scripts
+
+If the client has access to host, I can send back information coded in ip addresses
+If the client is a kindle, I can signal YES (name resolves) or NO (NXDOMAIN)
+
+Action:		set dynamic dns to my current ip
+Query:		set.[NAME].flatcap.org
+Result:		[NAME].flatcap.org resolves to my current ip address
+
+check mail
+check contacts
+get password
+
+port knocking / generate one-time-password
+
+create/enable temporary email address (with a timeout)
+
+---------------------------------------------------------------------
+HIKES
+
+dot        => space
+underscore => hyphen
+
+route:
+	ROUTE.pennine.way.HIKE.FLATCAP.ORG
+
+waypoint:
+	WP.123.HIKE.FLATCAP.ORG
+
+grid ref (4,6,8,10 figures, fully numeric):
+	GR.SU1234.HIKE.FLATCAP.ORG
+	GR.SU.12.34.HIKE.FLATCAP.ORG
+	GR.SU123456.HIKE.FLATCAP.ORG
+	GR.SU.123.456.HIKE.FLATCAP.ORG
+	GR.SU12345678.HIKE.FLATCAP.ORG
+	GR.SU.1234.5678.HIKE.FLATCAP.ORG
+	GR.SU1234567890.HIKE.FLATCAP.ORG
+	GR.SU.12345.67890.HIKE.FLATCAP.ORG
+	GR.439668.1175316.HIKE.FLATCAP.ORG
+
+message:
+	MSG.this.is.a.message.HIKE.FLATCAP.ORG
+	MSG.HIKE.FLATCAP.ORG
+
+lat/long (decimal):
+	LL.51.763245._1.2690672.HIKE.FLATCAP.ORG
+
+lat/long (deg/min):
+	DM.51.45.79._1.16.14.HIKE.FLATCAP.ORG
+

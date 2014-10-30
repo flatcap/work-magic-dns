@@ -1,0 +1,20 @@
+#!/bin/bash
+
+iptables -F
+
+iptables -I INPUT -i dns0 -p icmp --icmp-type echo-request -m recent --set
+iptables -I INPUT -i dns0 -p icmp --icmp-type echo-request -m recent --update --seconds 10 --hitcount 4 -j REJECT --reject-with icmp-host-unreachable
+
+# -j REJECT
+# -j DROP
+
+# icmp-net-unreachable
+# icmp-host-unreachable
+# icmp-port-unreachable
+# icmp-proto-unreachable
+# icmp-net-prohibited
+# icmp-host-prohibited
+# icmp-admin-prohibited
+
+iptables -L INPUT
+
