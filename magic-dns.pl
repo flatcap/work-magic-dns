@@ -4,6 +4,8 @@ use strict;
 use IO::Socket;
 use Devel::Hexdump 'xd';
 use Data::Dumper;
+use Net::DNS;
+use Net::DNS::Packet;
 
 my ($sock, $buf, $host, $MAXLEN, $PORTNO);
 
@@ -156,10 +158,9 @@ sub dns_authority
 sub main
 {
 	$sock = IO::Socket::INET->new (
-				LocalPort => $PORTNO,
-				Proto => 'udp'
-				)
-				or die "socket: $@";
+		LocalPort => $PORTNO,
+		Proto => 'udp'
+	) or die "socket: $@";
 
 	print "DNSMagic: Awaiting UDP messages on port $PORTNO\n";
 
@@ -213,7 +214,7 @@ sub main
 			if ($auths) {
 				$reply .= dns_authority ();
 			}
-			
+
 			if ($adds) {
 				$reply .= chr(0x00);	# null string
 				$reply .= chr(0x00);	# RR 41 (Option)
@@ -240,10 +241,25 @@ sub main
 		} else {
 		}
 
-		# print xd $reply;
-		# print "\n";
+		print xd $reply; print "\n";
 
-		$sock->send ($reply);
+		my $packet = new Net::DNS::Packet();
+		# $packet->push(pre => nxdomain("apple.banana.com"));
+		$packet->header->id($txn);
+		$packet->header->rcode('NXDOMAIN');
+		$packet->header->qr(1);
+		$packet->header->aa(1);
+		my $forg = Net::DNS::RR->new ('flatcap.org. SOA ns.flatcap.org richardrusson.gmail.com 14400 3600 1814400 3600');
+		$packet->push (authority => $forg);
+		# my $qu = Net::DNS::Question->new ('question.org');
+		# $packet->push (question => $qu);
+		# $packet->header->aa(1);
+		my $data = $packet->data();
+		print xd $data; print "\n";
+
+		printf "txn = %s\n", $txn;
+		$sock->send ($data);
+		# $sock->send ($reply);
 	}
 	die "recv: $!";
 }
