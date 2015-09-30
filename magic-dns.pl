@@ -244,16 +244,26 @@ sub main
 		print xd $reply; print "\n";
 
 		my $packet = new Net::DNS::Packet();
-		# $packet->push(pre => nxdomain("apple.banana.com"));
 		$packet->header->id($txn);
 		$packet->header->rcode('NXDOMAIN');
 		$packet->header->qr(1);
 		$packet->header->aa(1);
-		my $forg = Net::DNS::RR->new ('flatcap.org. SOA ns.flatcap.org richardrusson.gmail.com 14400 3600 1814400 3600');
+		my $forg = new Net::DNS::RR (
+			name => 'flatcap.org',
+			type => 'SOA',
+			ttl => '1H',
+			mname => 'ns.flatcap.org',
+			rname => 'richardrusson@gmail.com',
+			serial => '2015092901',
+			refresh => '7200',
+			retry => '3600',
+			expire => '1209600',
+			minimum => '3600',
+		);
+
 		$packet->push (authority => $forg);
-		# my $qu = Net::DNS::Question->new ('question.org');
-		# $packet->push (question => $qu);
-		# $packet->header->aa(1);
+		my $qu = Net::DNS::Question->new ('example.com');
+		$packet->push (question => $qu);
 		my $data = $packet->data();
 		print xd $data; print "\n";
 
