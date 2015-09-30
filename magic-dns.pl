@@ -7,6 +7,11 @@ use Data::Dumper;
 use Net::DNS;
 use Net::DNS::Packet;
 
+$Data::Dumper::Indent    = 2;
+$Data::Dumper::Useqq     = 1;
+$Data::Dumper::Quotekeys = 0;
+$Data::Dumper::Sortkeys  = 1;
+
 my ($sock, $buf, $host, $MAXLEN, $PORTNO);
 
 $MAXLEN = 1024;
@@ -48,110 +53,12 @@ sub decode_name
 	return join (".", @part_list);
 }
 
-sub encode_name
-{
-	my ($name) = @_;
-
-	# print "$name\n";
-	my @parts = split ('\.', $name);
-
-	# print Dumper (@parts);
-	# printf "len = %d\n", scalar @parts;
-
-	my $reply;
-	foreach (@parts) {
-		$reply .= chr (length ($_));
-		$reply .= $_;
-	}
-
-	return $reply;
-}
-
-sub dump_request
-{
-	my ($buf) = @_;
-
-	my ($txn, $flags, $questions, $answers, $auths, $adds, $query, $qtype, $qclass) = unpack ("n6Z*n2", $buf);
-	my $f1 = ($flags >> 15) &  1;
-	my $f2 = ($flags >> 11) & 15;
-	my $f3 = ($flags >>  9) &  1;
-	my $f4 = ($flags >>  8) &  1;
-	my $f5 = ($flags >>  6) &  1;
-	my $f6 = ($flags >>  4) &  1;
-
-	print xd $buf;
-	printf "Request:\n";
-	printf "\ttxn id\t= 0x%04x\n", $txn;
-	printf "\tflags\t = 0x%04x\n", $flags;
-	printf "\t\tresponse  = %d\n", $f1;
-	printf "\t\topcode    = %d\n", $f2;
-	printf "\t\ttruncated = %d\n", $f3;
-	printf "\t\trecurse   = %d\n", $f4;
-	printf "\t\treserved  = %d\n", $f5;
-	printf "\t\tnon-auth  = %d\n", $f6;
-	printf "\tquestions = %d\n",   $questions;
-	printf "\tanswers   = %d\n",   $answers;
-	printf "\tauths     = %d\n",   $auths;
-	printf "\tadds      = %d\n",   $adds;
-	printf "\tquery\n";
-	printf "\t\tname  = %s\n",     decode_name ($query);
-	printf "\t\ttype  = %d\n",     $qtype;
-	printf "\t\tclass = %d\n",     $qclass;
-	print "\n";
-}
-
 sub match_grid_ref
 {
 	my ($name) = @_;
 
 	$name = decode_name ($name);
 	print "$name\n";
-}
-
-
-sub dns_header
-{
-	# my ($txn, $flags, $questions, $answers, $auths, $adds) = @_;
-	# my $bytes = pack ("n6", $txn, $flags, $questions, $answers, $auths, $adds);
-	# return $bytes;
-	return pack ("n6", @_);
-}
-
-sub dns_query
-{
-	# my ($query, $qtype, $qclass) = @_;
-	# my $bytes = pack ("Z*n2", $query, $qtype);
-	# return $bytes;
-	return pack ("Z*n2", @_);
-}
-
-sub dns_answer
-{
-	# my ($name_ref, $qtype, $qclass, $ttl, $data_len, $addr) = @_;
-	# my $bytes = pack ("n3NnN", $name_ref, $qtype, $qclass, $ttl, $data_len, $addr);
-	# return $bytes;
-
-	return pack ("n3NnN", @_);
-}
-
-sub dns_authority
-{
-	my $domain  = encode_name ("flatcap.org");
-	my $server  = encode_name ("ns1.flatcap.org");
-	my $mail    = encode_name ("richardrusson.gmail.com");
-	my $type    = 0x0006;	# SOA
-	my $class   = 0x0001;	# IN
-	my $ttl     = 86400;	# 1 day
-	my $datalen = 22 + length ($server) + length ($mail);
-	my $serial  = 2014102001;
-	my $refresh = 14400;	# 4 hours
-	my $retry   = 14400;	# 4 hours
-	my $expire  = 1209600;	# 14 days
-	my $minttl  = 86400;	# 1 day
-
-	return pack ("Z*nnNnZ*Z*N5",
-		$domain, $type, $class, $ttl, $datalen, $server, $mail, $serial,
-		$refresh, $retry, $expire, $minttl);
 }
 
 
@@ -166,86 +73,59 @@ sub main
 
 	while ($sock->recv ($buf, $MAXLEN)) {
 
+		my $packet = new Net::DNS::Packet (\$buf);
+		# print Dumper $packet;
+
 		my ($port, $ipaddr) = sockaddr_in ($sock->peername);
 
 		$host = gethostbyaddr ($ipaddr, AF_INET);
 		if (!defined $host) {
-			$host = "";
+			$host = "NXDOMAIN";
 		}
 
 		$ipaddr = sprintf "%d.%d.%d.%d", unpack ("C4", $ipaddr);
 
-		# printf "Client $ipaddr:$port ($host) sent %d bytes\n", length ($buf);
+		printf "Client $ipaddr:$port ($host) sent %d bytes\n", length ($buf);
 
 		my ($txn, $flags, $questions, $answers, $auths, $adds, $query, $qtype, $qclass) = unpack ("n6Z*n2", $buf);
-		my $f1 = ($flags >> 15) &  1;
-		my $f2 = ($flags >> 11) & 15;
-		my $f3 = ($flags >>  9) &  1;
-		my $f4 = ($flags >>  8) &  1;
-		my $f5 = ($flags >>  6) &  1;
-		my $f6 = ($flags >>  4) &  1;
+		my $f1 = ($flags >> 15) &  1; # Response: Message is a query
+		my $f2 = ($flags >> 11) & 15; # Opcode: Standard query (0)
+		my $f3 = ($flags >>  9) &  1; # Truncated: Message is not truncated
+		my $f4 = ($flags >>  8) &  1; # Recursion desired: Do query recursively
+		my $f5 = ($flags >>  6) &  1; # AD bit: Set
+		my $f6 = ($flags >>  4) &  1; # Non-authenticated data: Unacceptable
+		printf "flags: %d %04d %d %d %d %d\n", $f1, $f2, $f3, $f4, $f5, $f6;
 
-		# print "$qtype: ";
-		match_grid_ref ($query);
+		my $num_quest   = $packet->{"count"}[0];
+		my $num_answers = $packet->{"count"}[1];
+		my $num_auths   = $packet->{"count"}[2];
+		my $num_adds    = $packet->{"count"}[3];
 
-		# dump_request ($buf);
+		printf "Questions: %d\n",      $num_quest;
+		printf "Answer RRs: %d\n",     $num_answers;
+		printf "Authority RRs: %d\n",  $num_auths;
+		printf "Additional RRs: %d\n", $num_adds;
 
-		my $reply;
-		if ($qtype == 1) {		# A record
-			# 1.2.3.4
-			$answers     = 1;
-			if ($answers) {
-				$flags = 0b1000010100000000;
-			} else {
-				$flags = 0b1000010100000011;
-			}
-			$auths       = 0;
-			$adds        = 0;
-			my $name_ref = 0xC00C;
-			my $ttl      = 60;
-			my $data_len = 4;
-			my $addr     = (rand(256) << 24) + (rand(256) << 16) + (rand(256) << 8) + rand(256);
-
-			$reply  = dns_header    ($txn, $flags, $questions, $answers, $auths, $adds);
-			$reply .= dns_query     ($query, $qtype, $qclass);
-			if ($answers) {
-				$reply .= dns_answer ($name_ref, $qtype, $qclass, $ttl, $data_len, $addr);
-			}
-			if ($auths) {
-				$reply .= dns_authority ();
-			}
-
-			if ($adds) {
-				$reply .= chr(0x00);	# null string
-				$reply .= chr(0x00);	# RR 41 (Option)
-				$reply .= chr(0x29);
-				$reply .= chr(0x04);	# Payload size 0x400 (1024 bytes)
-				$reply .= chr(0x00);
-				$reply .= chr(0x00);
-				$reply .= chr(0x00);
-				$reply .= chr(0x00);
-				$reply .= chr(0x00);
-				$reply .= chr(0x00);
-				$reply .= chr(0x00);
-			}
-		} elsif ($qtype == 28) {	# AAAA record
-			# NXDOMAIN
-			$flags = 0b1000010110000011;
-			$reply = dns_header ($txn, $flags, $questions, $answers, $auths, $adds);
-			$reply .= pack ("Z*n2", $query, $qtype, $qclass);
-		} elsif ($qtype == 15) {	# MX record
-			# NXDOMAIN
-			$flags = 0b1000010110000011;
-			$reply = dns_header ($txn, $flags, $questions, $answers, $auths, $adds);
-			$reply .= pack ("Z*n2", $query, $qtype, $qclass);
-		} else {
+		if ($num_quest > 0) {
+			my @q = $packet->question;
+			my $q1 = @q[0];
+			printf "qtype = %s\n", $q1->qtype;
+			printf "label = %s\n", $q1->name;
 		}
 
-		print xd $reply; print "\n";
+		# print "$qtype:\n";
+		# exit;
 
-		my $packet = new Net::DNS::Packet();
+		match_grid_ref ($query);
+
+		my $reply;
+		# print xd $reply; print "\n";
+
+		$packet = new Net::DNS::Packet();
 		$packet->header->id($txn);
-		$packet->header->rcode('NXDOMAIN');
+		# $packet->header->rcode('NXDOMAIN');
+		$packet->header->rcode('NOERROR');
+		# printf "%s\n", $packet->header->rcode; exit;
 		$packet->header->qr(1);
 		$packet->header->aa(1);
 		my $forg = new Net::DNS::RR (
@@ -261,15 +141,38 @@ sub main
 			minimum => '3600',
 		);
 
+		my $addr = sprintf "%d.%d.%d.%d", rand(256), rand(256), rand(256), rand(256);
+		my $ans = new Net::DNS::RR (
+			name => 'example.com',
+			type => 'A',
+			address => $addr
+		);
+
+		my $txt = new Net::DNS::RR (
+			name => 'txt.example.com',
+			type => 'TXT',
+			txtdata => "there was an old woman who lived in a shoe"
+		);
+
+		my $txt2 = new Net::DNS::RR (
+			name => 'txt2.example.com',
+			type => 'TXT',
+			txtdata => [ "she has so many children", "she didn't know what to do" ]
+		);
+
 		$packet->push (authority => $forg);
 		my $qu = Net::DNS::Question->new ('example.com');
 		$packet->push (question => $qu);
+		$packet->push (answer => $ans);
+		$packet->push (additional => $txt);
+		$packet->push (additional => $txt2);
 		my $data = $packet->data();
-		print xd $data; print "\n";
+		# print xd $data; print "\n";
 
-		printf "txn = %s\n", $txn;
+		# printf "txn = %s\n", $txn;
 		$sock->send ($data);
 		# $sock->send ($reply);
+		last;
 	}
 	die "recv: $!";
 }

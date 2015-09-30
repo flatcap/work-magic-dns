@@ -22,3 +22,7 @@ my $packet = new Net::DNS::Packet (\$buf);
 
 print Dumper $packet;
 
+my $reply = $packet->reply(4096);
+
+print Dumper $reply;
+
