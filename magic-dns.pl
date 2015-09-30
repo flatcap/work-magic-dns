@@ -1,16 +1,15 @@
 #!/usr/bin/perl -w
 
 use strict;
+use warnings;
+
+our $VERSION = 0.1;
+
 use IO::Socket;
 use Devel::Hexdump 'xd';
 use Data::Dumper;
 use Net::DNS;
 use Net::DNS::Packet;
-
-$Data::Dumper::Indent    = 2;
-$Data::Dumper::Useqq     = 1;
-$Data::Dumper::Quotekeys = 0;
-$Data::Dumper::Sortkeys  = 1;
 
 my ($sock, $buf, $host, $MAXLEN, $PORTNO);
 
@@ -19,48 +18,6 @@ $PORTNO = 50001;
 
 # Auto-flush output
 $| = 1;
-
-sub split_name
-{
-	my ($name) = @_;
-
-	# print "Name:\n";
-	# print xd $name;
-	# print "\n";
-
-	my $name_len = length ($name);
-	my @part_list = ();
-	my $part_len = 1;
-
-	for (my $i = 0; $i < $name_len; $i += ($part_len+1)) {
-		$part_len = ord (substr ($name, $i, 1));
-		my $part = substr ($name, $i+1, $part_len);
-		# printf "i = %d\n", $i;
-		# printf "\tpart_len = %d\n", $part_len;
-		# printf "\tpart     = %s\n", $part;
-		push (@part_list, $part);
-	}
-
-	return join (".", @part_list);
-}
-
-sub decode_name
-{
-	my ($name) = @_;
-
-	my @part_list = split_name ($name);
-
-	return join (".", @part_list);
-}
-
-sub match_grid_ref
-{
-	my ($name) = @_;
-
-	$name = decode_name ($name);
-	print "$name\n";
-}
-
 
 sub main
 {
@@ -73,61 +30,46 @@ sub main
 
 	while ($sock->recv ($buf, $MAXLEN)) {
 
-		my $packet = new Net::DNS::Packet (\$buf);
-		# print Dumper $packet;
-
 		my ($port, $ipaddr) = sockaddr_in ($sock->peername);
-
-		$host = gethostbyaddr ($ipaddr, AF_INET);
-		if (!defined $host) {
-			$host = "NXDOMAIN";
-		}
-
+		$host = gethostbyaddr ($ipaddr, AF_INET) || "NXDOMAIN";
 		$ipaddr = sprintf "%d.%d.%d.%d", unpack ("C4", $ipaddr);
 
 		printf "Client $ipaddr:$port ($host) sent %d bytes\n", length ($buf);
 
-		my ($txn, $flags, $questions, $answers, $auths, $adds, $query, $qtype, $qclass) = unpack ("n6Z*n2", $buf);
-		my $f1 = ($flags >> 15) &  1; # Response: Message is a query
-		my $f2 = ($flags >> 11) & 15; # Opcode: Standard query (0)
-		my $f3 = ($flags >>  9) &  1; # Truncated: Message is not truncated
-		my $f4 = ($flags >>  8) &  1; # Recursion desired: Do query recursively
-		my $f5 = ($flags >>  6) &  1; # AD bit: Set
-		my $f6 = ($flags >>  4) &  1; # Non-authenticated data: Unacceptable
-		printf "flags: %d %04d %d %d %d %d\n", $f1, $f2, $f3, $f4, $f5, $f6;
+		my $packet = new Net::DNS::Packet (\$buf);
+		# print Dumper $packet;
 
-		my $num_quest   = $packet->{"count"}[0];
-		my $num_answers = $packet->{"count"}[1];
-		my $num_auths   = $packet->{"count"}[2];
-		my $num_adds    = $packet->{"count"}[3];
+		my $header = $packet->header;
+		my $id = $header->id;
+		printf "id                %d\n", $id;
+		printf "opcode            %s\n", $header->opcode;
+		printf "message truncated %s\n", $header->tc;
+		printf "recursion desired %s\n", $header->rd;
+		printf "authoritative     %s\n", $header->ad;
+		printf "checking          %s\n", $header->cd;
+		print "\n";
 
-		printf "Questions: %d\n",      $num_quest;
-		printf "Answer RRs: %d\n",     $num_answers;
-		printf "Authority RRs: %d\n",  $num_auths;
+		my $num_quest   = $header->qdcount;
+		my $num_answers = $header->ancount;
+		my $num_auths   = $header->nscount;
+		my $num_adds    = $header->arcount;
+
+		printf "Questions:      %d\n", $num_quest;
+		printf "Answer RRs:     %d\n", $num_answers;
+		printf "Authority RRs:  %d\n", $num_auths;
 		printf "Additional RRs: %d\n", $num_adds;
+		print "\n";
 
 		if ($num_quest > 0) {
 			my @q = $packet->question;
-			my $q1 = @q[0];
+			my $q1 = $q[0];
 			printf "qtype = %s\n", $q1->qtype;
 			printf "label = %s\n", $q1->name;
 		}
 
-		# print "$qtype:\n";
-		# exit;
-
-		match_grid_ref ($query);
-
-		my $reply;
-		# print xd $reply; print "\n";
-
 		$packet = new Net::DNS::Packet();
-		$packet->header->id($txn);
-		# $packet->header->rcode('NXDOMAIN');
-		$packet->header->rcode('NOERROR');
-		# printf "%s\n", $packet->header->rcode; exit;
-		$packet->header->qr(1);
-		$packet->header->aa(1);
+		$packet->header->id($id);
+		$packet->header->rcode('NOERROR');	# NXDOMAIN SERVFAIL
 		my $forg = new Net::DNS::RR (
 			name => 'flatcap.org',
 			type => 'SOA',
@@ -166,13 +108,13 @@ sub main
 		$packet->push (answer => $ans);
 		$packet->push (additional => $txt);
 		$packet->push (additional => $txt2);
+
+		$packet->header->qr(1);
+		$packet->header->aa(1);
 		my $data = $packet->data();
 		# print xd $data; print "\n";
 
-		# printf "txn = %s\n", $txn;
 		$sock->send ($data);
-		# $sock->send ($reply);
-		last;
 	}
 	die "recv: $!";
 }
