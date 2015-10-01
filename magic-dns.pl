@@ -18,10 +18,16 @@ use POSIX qw(strftime);
 
 no warnings 'experimental::smartmatch';
 
-Readonly my $OCTET    => 256;
-Readonly my $MAXLEN   => 1024;
-Readonly my $PORTNO   => 50_001;
-Readonly my $BASEHOST => 'hike.flatcap.org';
+Readonly my $OCTET           => 256;
+Readonly my $MAXLEN          => 1024;
+Readonly my $PORTNO          => 50_001;
+Readonly my $BASEHOST        => 'hike.flatcap.org';
+Readonly my $MINS_PER_DEGREE => 60;
+
+Readonly my $UK_NORTH => 59;
+Readonly my $UK_SOUTH => 49;
+Readonly my $UK_EAST  => 2;
+Readonly my $UK_WEST  => -8;
 
 # Map of numeric grid references to grid square names
 Readonly my %UK_GRID => (
@@ -47,7 +53,7 @@ sub decode_string
 {
 	my ($str) = @_;
 
-	$str =~ tr/\._/ -/;
+	$str =~ tr/._/ -/;
 
 	return $str;
 }
@@ -56,7 +62,7 @@ sub within_uk
 {
 	my ($lat, $long) = @_;
 
-	return (($lat > 49) && ($lat < 59) && ($long > -8) && ($long < 2));
+	return (($lat > $UK_SOUTH) && ($lat < $UK_NORTH) && ($long > $UK_WEST) && ($long < $UK_EAST));
 }
 
 sub valid_square
@@ -74,7 +80,7 @@ sub lookup_square
 {
 	my ($east, $north) = @_;
 
-	return "SU";
+	return 'SU';
 }
 
 
@@ -86,13 +92,13 @@ sub process_gridref
 	$gr =~ tr/.//d;
 
 	# SU 123 456
-	if ($gr =~ /^([A-Z][A-Z])(([0-9][0-9]){1,5})$/) {
+	if ($gr =~ /^([[:upper:]][[:upper:]])((\d\d){1,5})$/msx) {
 		my $square = $1;
 		my $ref    = $2;
 
 		my $len = (length $ref) / 2;
 
-		my $east  = substr $ref, 0, $len;
+		my $east = substr $ref, 0, $len;
 		my $north = substr $ref, $len;
 
 		printf "VALID gridref: $square $east $north\n";
@@ -100,7 +106,7 @@ sub process_gridref
 	}
 
 	# Could still be fully numeric 439668.1175316
-	if ($gr =~ /^([0-9])([0-9]{5})([0-9])([0-9]{5,6})$/) {
+	if ($gr =~ /^(\d)(\d{5})(\d)(\d{5,6})$/msx) {
 		my $east   = $2;
 		my $north  = $4;
 		my $square = lookup_square ($1, $3);
@@ -121,14 +127,17 @@ sub process_decimal
 
 	$data =~ tr/_/-/;
 
+	my $lat;
+	my $long;
+
 	# e.g. 51.763245.-1.2690672
-	if ($data !~ /^(-?\d{1,2}\.\d{1,7})[.,](-?\d{1,2}\.\d{1,7})$/) {
+	if ($data =~ /^(-?\d{1,2}[.]\d{1,7})[.,](-?\d{1,2}[.]\d{1,7})$/msx) {
+		$lat  = $1;
+		$long = $2;
+	} else {
 		printf "INVALID decimal: $data\n";
 		return 0;
 	}
-
-	my $lat  = $1;
-	my $long = $2;
 
 	# Check against bounds of the UK
 	if (within_uk ($lat, $long) || within_uk ($long, $lat)) {
@@ -149,23 +158,29 @@ sub process_degrees
 	# degrees.minutes.decimal
 	# 51.45.79.-1.16.14
 
-	if ($data !~ /^(-?\d{1,2})\.(\d{1,2}\.\d{1,2})[.,](-?\d{1,2})\.(\d{1,2}\.\d{1,2})$/) {
+	my $lat_deg;
+	my $lat_min;
+	my $lon_deg;
+	my $lon_min;
+
+	Readonly my $RE_DEG => '(-?\d{1,2})[.](\d{1,2}[.]\d{1,2})';
+	if ($data =~ /^$RE_DEG[.,]$RE_DEG$/msx) {
+		$lat_deg = $1 * 1.0;
+		$lat_min = $2 * 1.0;
+		$lon_deg = $3 * 1.0;
+		$lon_min = $4 * 1.0;
+	} else {
 		printf "INVALID degrees: $data\n";
 		return 0;
 	}
 
-	my $lat_deg = $1 * 1.0;
-	my $lat_min = $2 * 1.0;
-	my $lon_deg = $3 * 1.0;
-	my $lon_min = $4 * 1.0;
-
-	if (($lat_min >= 60) || ($lon_min >= 60)) {
+	if (($lat_min >= $MINS_PER_DEGREE) || ($lon_min >= $MINS_PER_DEGREE)) {
 		printf "INVALID degrees: $data\n";
 		return 0;
 	}
 
-	$lat_min /= 60;
-	$lon_min /= 60;
+	$lat_min /= $MINS_PER_DEGREE;
+	$lon_min /= $MINS_PER_DEGREE;
 
 	if ($lat_deg > 0) { $lat_deg += $lat_min; } else { $lat_deg -= $lat_min; }
 	if ($lon_deg > 0) { $lon_deg += $lon_min; } else { $lon_deg -= $lon_min; }
@@ -207,10 +222,12 @@ sub process_waypoint
 {
 	my ($data) = @_;
 
-	if ($data =~ /^\d{1,5}$/) {
+	if ($data =~ /^\d{1,5}$/msx) {
 		printf "VALID waypoint: $data\n";
+		return 1;
 	} else {
 		printf "INVALID waypoint: $data\n";
+		return 0;
 	}
 }
 
@@ -219,24 +236,30 @@ sub parse_request
 {
 	my ($req) = @_;
 
-	if ($req !~ /^((.+)(\.))*$BASEHOST$/msxi) {
+	my $sub;
+	my $key;
+
+	if ($req =~ /^((.+)([.]))*$BASEHOST$/msxi) {
+		$sub = $1;
+		$key = $2;
+	} else {
 		return;
 	}
 
-	if (!defined $1) {
+	if (!$sub) {
 		return (q{}, q{});
 	}
 
-	if ($2 =~ /([^.]+)\.(.*)/msx) {
+	if ($key =~ /([^.]+)[.](.*)/msx) {
 		return (uc $1, $2);
 	}
 
-	return (uc $2, '');
+	return (uc $key, q{});
 }
 
 sub make_authority
 {
-	my $serial = strftime '%Y%m%d01', gmtime();
+	my $serial = strftime '%Y%m%d01', gmtime;
 	my $auth = Net::DNS::RR->new (
 		name    => 'flatcap.org',
 		type    => 'SOA',
@@ -263,7 +286,7 @@ sub main
 
 	printf "DNSMagic: Awaiting UDP messages on port $PORTNO\n";
 
-	my $domain_auth = make_authority();
+	my $domain_auth = make_authority ();
 
 	my $buf;
 	while ($sock->recv ($buf, $MAXLEN)) {
@@ -289,9 +312,13 @@ sub main
 			printf "%s, %s\n", $type, $data;
 		}
 
-		my $reply = $packet->reply();
-		if (rand 100 > 50) {
-			$reply->header->rcode ('NOERROR');    # NOERROR NXDOMAIN SERVFAIL
+		my $reply = $packet->reply ();
+		$reply->push (authority => $domain_auth);
+		$reply->header->qr (1);
+		$reply->header->aa (1);
+
+		if (defined $label) {
+			$reply->header->rcode ('NOERROR');
 			my $addr = sprintf '%d.%d.%d.%d', rand $OCTET, rand $OCTET, rand $OCTET, rand $OCTET;
 			my $ans = Net::DNS::RR->new (
 				name    => $label,
@@ -301,12 +328,8 @@ sub main
 
 			$reply->push (answer => $ans);
 		} else {
-			$reply->header->rcode ('NXDOMAIN');    # NOERROR NXDOMAIN SERVFAIL
+			$reply->header->rcode ('NXDOMAIN');
 		}
-
-		$reply->push (authority => $domain_auth);
-		$reply->header->qr (1);
-		$reply->header->aa (1);
 
 		$sock->send ($reply->data ());
 	}
@@ -337,6 +360,8 @@ sub test
 			exit 1;
 		}
 	}
+
+	return;
 }
 
 
