@@ -80,7 +80,9 @@ sub lookup_square
 {
 	my ($east, $north) = @_;
 
-	return 'SU';
+	my $index = "$east$north";
+
+	return ($UK_GRID{$index} || q{});
 }
 
 
