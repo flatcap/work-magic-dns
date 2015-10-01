@@ -14,6 +14,7 @@ use Readonly;
 use English qw(-no_match_vars);
 use Carp;
 use feature 'switch';
+use POSIX qw(strftime);
 
 no warnings 'experimental::smartmatch';
 
@@ -233,6 +234,25 @@ sub parse_request
 	return (uc $2, '');
 }
 
+sub make_authority
+{
+	my $serial = strftime '%Y%m%d01', gmtime();
+	my $auth = Net::DNS::RR->new (
+		name    => 'flatcap.org',
+		type    => 'SOA',
+		ttl     => '1H',
+		mname   => 'ns.flatcap.org',
+		rname   => 'richardrusson@gmail.com',
+		serial  => $serial,
+		refresh => '7200',
+		retry   => '3600',
+		expire  => '1209600',
+		minimum => '3600',
+	);
+
+	return $auth;
+}
+
 
 sub main
 {
@@ -242,6 +262,8 @@ sub main
 	) or croak "socket: $EVAL_ERROR";
 
 	printf "DNSMagic: Awaiting UDP messages on port $PORTNO\n";
+
+	my $domain_auth = make_authority();
 
 	my $buf;
 	while ($sock->recv ($buf, $MAXLEN)) {
@@ -253,87 +275,40 @@ sub main
 		printf "Client $ipaddr:$port ($host) sent %d bytes\n", length $buf;
 
 		my $packet = Net::DNS::Packet->new (\$buf);
-		# print Dumper $packet;
-
 		my $header = $packet->header;
-		my $id     = $header->id;
-		printf "id                %d\n", $id;
-		printf "opcode            %s\n", $header->opcode;
-		printf "message truncated %s\n", $header->tc;
-		printf "recursion desired %s\n", $header->rd;
-		printf "authoritative     %s\n", $header->ad;
-		printf "checking          %s\n", $header->cd;
-		printf "\n";
 
-		my $num_quest   = $header->qdcount;
-		my $num_answers = $header->ancount;
-		my $num_auths   = $header->nscount;
-		my $num_adds    = $header->arcount;
-
-		printf "Questions:      %d\n", $num_quest;
-		printf "Answer RRs:     %d\n", $num_answers;
-		printf "Authority RRs:  %d\n", $num_auths;
-		printf "Additional RRs: %d\n", $num_adds;
-		printf "\n";
-
-		if ($num_quest > 0) {
+		my $label;
+		if ($header->qdcount > 0) {
 			my @q  = $packet->question;
 			my $q1 = $q[0];
 			printf "qtype = %s\n", $q1->qtype;
 			printf "label = %s\n", $q1->name;
+			$label = $q1->name;
 
 			my ($type, $data) = parse_request ($q1->name);
 			printf "%s, %s\n", $type, $data;
 		}
 
-		$packet = Net::DNS::Packet->new ();
-		$packet->header->id ($id);
-		$packet->header->rcode ('NOERROR');    # NXDOMAIN SERVFAIL
-		my $forg = Net::DNS::RR->new (
-			name    => 'flatcap.org',
-			type    => 'SOA',
-			ttl     => '1H',
-			mname   => 'ns.flatcap.org',
-			rname   => 'richardrusson@gmail.com',
-			serial  => '2015092901',
-			refresh => '7200',
-			retry   => '3600',
-			expire  => '1209600',
-			minimum => '3600',
-		);
+		my $reply = $packet->reply();
+		if (rand 100 > 50) {
+			$reply->header->rcode ('NOERROR');    # NOERROR NXDOMAIN SERVFAIL
+			my $addr = sprintf '%d.%d.%d.%d', rand $OCTET, rand $OCTET, rand $OCTET, rand $OCTET;
+			my $ans = Net::DNS::RR->new (
+				name    => $label,
+				type    => 'A',
+				address => $addr
+			);
 
-		my $addr = sprintf '%d.%d.%d.%d', rand $OCTET, rand $OCTET, rand $OCTET, rand $OCTET;
-		my $ans = Net::DNS::RR->new (
-			name    => 'example.com',
-			type    => 'A',
-			address => $addr
-		);
+			$reply->push (answer => $ans);
+		} else {
+			$reply->header->rcode ('NXDOMAIN');    # NOERROR NXDOMAIN SERVFAIL
+		}
 
-		my $txt = Net::DNS::RR->new (
-			name    => 'txt.example.com',
-			type    => 'TXT',
-			txtdata => 'there was an old woman who lived in a shoe'
-		);
+		$reply->push (authority => $domain_auth);
+		$reply->header->qr (1);
+		$reply->header->aa (1);
 
-		my $txt2 = Net::DNS::RR->new (
-			name    => 'txt2.example.com',
-			type    => 'TXT',
-			txtdata => ['she has so many children', 'she didn\'t know what to do']
-		);
-
-		$packet->push (authority => $forg);
-		my $qu = Net::DNS::Question->new ('example.com');
-		$packet->push (question   => $qu);
-		$packet->push (answer     => $ans);
-		$packet->push (additional => $txt);
-		$packet->push (additional => $txt2);
-
-		$packet->header->qr (1);
-		$packet->header->aa (1);
-		my $data = $packet->data ();
-		# print xd $data; print "\n";
-
-		$sock->send ($data);
+		$sock->send ($reply->data ());
 	}
 	croak "recv: $ERRNO";
 }
@@ -365,8 +340,8 @@ sub test
 }
 
 
-# main ();
-test ();
+main ();
+# test ();
 
 exit 0;
 
