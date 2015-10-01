@@ -300,24 +300,22 @@ sub main
 		my $packet = Net::DNS::Packet->new (\$buf);
 		my $header = $packet->header;
 
-		my $label;
+		my $label = q{};
 		if ($header->qdcount > 0) {
 			my @q  = $packet->question;
 			my $q1 = $q[0];
-			printf "qtype = %s\n", $q1->qtype;
-			printf "label = %s\n", $q1->name;
+			# printf "qtype = %s\n", $q1->qtype;
+			# printf "label = %s\n", $q1->name;
 			$label = $q1->name;
 
 			my ($type, $data) = parse_request ($q1->name);
-			printf "%s, %s\n", $type, $data;
+			# printf "%s, %s\n", $type, $data;
 		}
 
 		my $reply = $packet->reply ();
-		$reply->push (authority => $domain_auth);
 		$reply->header->qr (1);
-		$reply->header->aa (1);
 
-		if (defined $label) {
+		if ($label =~ /$BASEHOST$/) {
 			$reply->header->rcode ('NOERROR');
 			my $addr = sprintf '%d.%d.%d.%d', rand $OCTET, rand $OCTET, rand $OCTET, rand $OCTET;
 			my $ans = Net::DNS::RR->new (
@@ -326,6 +324,8 @@ sub main
 				address => $addr
 			);
 
+			$reply->header->aa (1);
+			$reply->push (authority => $domain_auth);
 			$reply->push (answer => $ans);
 		} else {
 			$reply->header->rcode ('NXDOMAIN');
