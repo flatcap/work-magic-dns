@@ -13,13 +13,137 @@ use Net::DNS::Packet;
 use Readonly;
 use English qw(-no_match_vars);
 use Carp;
+use feature 'switch';
 
-Readonly my $OCTET  => 256;
-Readonly my $MAXLEN => 1024;
-Readonly my $PORTNO => 50_001;
+no warnings 'experimental::smartmatch';
+
+Readonly my $OCTET    => 256;
+Readonly my $MAXLEN   => 1024;
+Readonly my $PORTNO   => 50_001;
+Readonly my $BASEHOST => 'hike.flatcap.org';
 
 # Auto-flush output
 $OUTPUT_AUTOFLUSH = 1;
+
+sub process_data
+{
+	my ($str) = @_;
+
+	$str =~ tr/\._/ -/;
+
+	return $str;
+}
+
+
+sub process_gridref
+{
+	my ($data) = @_;
+	printf "process_gridref '$data'\n";
+	# SU1234
+	# SU.12.34
+	# SU123456
+	# SU.123.456
+	# SU12345678
+	# SU.1234.5678
+	# SU1234567890
+	# SU.12345.67890
+	# 439668.1175316
+}
+
+sub process_decimal
+{
+	my ($data) = @_;
+
+	$data =~ tr/_/-/;
+
+	# e.g. 51.763245.-1.2690672
+	if ($data !~ /^(-?\d{1,2}\.\d{1,7})[.,](-?\d{1,2}\.\d{1,7})$/) {
+		printf "INVALID decimal: $data\n";
+		return 0;
+	}
+
+	my $lat  = $1;
+	my $long = $2;
+
+	# Check against bounds of the UK
+	if (($lat > 49) && ($lat < 59) && ($long > -8) && ($long < 2)) {
+		printf "VALID decimal: $long, $lat\n";
+		return 1;
+	}
+
+	# Swap the coordinates and try again
+	($lat, $long) = ($long, $lat);
+	if (($lat > 49) && ($lat < 59) && ($long > -8) && ($long < 2)) {
+		printf "VALID decimal: $long, $lat\n";
+		return 1;
+	}
+
+	printf "INVALID decimal: $data -- $lat $long\n";
+	return 0;
+}
+
+sub process_degrees
+{
+	my ($data) = @_;
+	printf "process_degrees '$data'\n";
+	# 51.45.79._1.16.14
+}
+
+sub process_message
+{
+	my ($data) = @_;
+
+	$data = process_data ($data);
+
+	printf "VALID message: $data\n";
+	return 1;
+}
+
+sub process_route
+{
+	my ($data) = @_;
+
+	my $dir = "/mnt/space/hikes/generated/routes/$data";
+	if (-d $dir) {
+		printf "VALID route: $data\n";
+		return 1;
+	} else {
+		printf "INVALID route: $data\n";
+		return 0;
+	}
+}
+
+sub process_waypoint
+{
+	my ($data) = @_;
+
+	if ($data =~ /^\d{1,5}$/) {
+		printf "VALID waypoint: $data\n";
+	} else {
+		printf "INVALID waypoint: $data\n";
+	}
+}
+
+
+sub parse_request
+{
+	my ($req) = @_;
+
+	if ($req !~ /^((.+)(\.))*$BASEHOST$/msxi) {
+		return;
+	}
+
+	if (!defined $1) {
+		return (q{}, q{});
+	}
+
+	if ($2 =~ /([^.]+)\.(.*)/msx) {
+		return (uc $1, $2);
+	}
+
+	return (uc $2, '');
+}
+
 
 sub main
 {
@@ -68,6 +192,9 @@ sub main
 			my $q1 = $q[0];
 			printf "qtype = %s\n", $q1->qtype;
 			printf "label = %s\n", $q1->name;
+
+			my ($type, $data) = parse_request ($q1->name);
+			printf "%s, %s\n", $type, $data;
 		}
 
 		$packet = Net::DNS::Packet->new ();
@@ -122,6 +249,35 @@ sub main
 	croak "recv: $ERRNO";
 }
 
+sub test
+{
+	my $str = $ARGV[0];
+	my ($type, $data) = parse_request ($str);
+
+	if (!defined $type || !defined $data) {
+		printf "no match\n";
+		exit 1;
+	}
+
+	# printf ">>%s<< >>%s<<\n", $type, $data;
+
+	given ($type) {
+		when ('GR')    { process_gridref  ($data); }
+		when ('DEG')   { process_degrees  ($data); }
+		when ('DEC')   { process_decimal  ($data); }
+		when ('MSG')   { process_message  ($data); }
+		when ('ROUTE') { process_route    ($data); }
+		when ('WP')    { process_waypoint ($data); }
+		default {
+			printf "Unknown command: $type\n";
+			exit 1;
+		}
+	}
+}
+
 
 main ();
+# test ();
+
+exit 0;
 
