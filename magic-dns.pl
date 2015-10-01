@@ -312,6 +312,20 @@ sub main
 
 			my ($type, $data) = parse_request ($q1->name);
 			# printf "%s, %s\n", $type, $data;
+
+			if (defined $type && defined $data) {
+				given ($type) {
+					when ('GR')    { process_gridref  ($data); }
+					when ('DEG')   { process_degrees  ($data); }
+					when ('DEC')   { process_decimal  ($data); }
+					when ('MSG')   { process_message  ($data); }
+					when ('ROUTE') { process_route    ($data); }
+					when ('WP')    { process_waypoint ($data); }
+					default {
+						printf "Unknown command: $type\n";
+					}
+				}
+			}
 		}
 
 		my $reply = $packet->reply ();
@@ -338,37 +352,6 @@ sub main
 	croak "recv: $ERRNO";
 }
 
-sub test
-{
-	my $str = $ARGV[0];
-	my ($type, $data) = parse_request ($str);
 
-	if (!defined $type || !defined $data) {
-		printf "no match\n";
-		exit 1;
-	}
-
-	# printf ">>%s<< >>%s<<\n", $type, $data;
-
-	given ($type) {
-		when ('GR')    { process_gridref  ($data); }
-		when ('DEG')   { process_degrees  ($data); }
-		when ('DEC')   { process_decimal  ($data); }
-		when ('MSG')   { process_message  ($data); }
-		when ('ROUTE') { process_route    ($data); }
-		when ('WP')    { process_waypoint ($data); }
-		default {
-			printf "Unknown command: $type\n";
-			exit 1;
-		}
-	}
-
-	return;
-}
-
-
-main ();
-# test ();
-
-exit 0;
+return main ();
 
