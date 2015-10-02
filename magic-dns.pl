@@ -236,27 +236,62 @@ sub process_waypoint
 
 sub parse_request
 {
-	my ($req) = @_;
+	my ($packet, $reply) = @_;
 
-	my $sub;
-	my $key;
+	my $header = $packet->header;
 
-	if ($req =~ /^((.+)([.]))*$BASEHOST$/msxi) {
-		$sub = $1;
-		$key = $2;
+	my @q = $packet->question;
+	if (scalar @q == 0) {
+		printf "No question section\n";
+		return 0;
+	}
+
+	my $request = $q[0]->name;
+
+	my $command;
+	my $data;
+
+	if ($request =~ /^((.+)([.]))*$BASEHOST$/msxi) {
+		if (!$1) {
+			printf "Our domain, but nothing to do\n";
+			return 0;
+		}
+
+		$command = $2;
 	} else {
-		return;
+		printf "Not our domain\n";
+		return 0;
 	}
 
-	if (!$sub) {
-		return (q{}, q{});
+	if ($command =~ /([^.]+)[.](.*)/msx) {
+		$command = uc $1;
+		$data    = $2;
+	} else {
+		$command = uc $command;
 	}
 
-	if ($key =~ /([^.]+)[.](.*)/msx) {
-		return (uc $1, $2);
+	given ($command) {
+		when ('GR')    { process_gridref  ($data); }
+		when ('DEG')   { process_degrees  ($data); }
+		when ('DEC')   { process_decimal  ($data); }
+		when ('MSG')   { process_message  ($data); }
+		when ('ROUTE') { process_route    ($data); }
+		when ('WP')    { process_waypoint ($data); }
+		default {
+			printf "Unknown command: $command\n";
+			return 0;
+		}
 	}
 
-	return (uc $key, q{});
+	my $addr = sprintf '%d.%d.%d.%d', rand $OCTET, rand $OCTET, rand $OCTET, rand $OCTET;
+	my $ans = Net::DNS::RR->new (
+		name    => $request,
+		type    => 'A',
+		address => $addr
+	);
+
+	$reply->push (answer => $ans);
+	return 1;
 }
 
 sub make_authority
@@ -302,47 +337,13 @@ sub main
 		my $packet = Net::DNS::Packet->new (\$buf);
 		my $header = $packet->header;
 
-		my $label = q{};
-		if ($header->qdcount > 0) {
-			my @q  = $packet->question;
-			my $q1 = $q[0];
-			# printf "qtype = %s\n", $q1->qtype;
-			# printf "label = %s\n", $q1->name;
-			$label = $q1->name;
-
-			my ($type, $data) = parse_request ($q1->name);
-			# printf "%s, %s\n", $type, $data;
-
-			if (defined $type && defined $data) {
-				given ($type) {
-					when ('GR')    { process_gridref  ($data); }
-					when ('DEG')   { process_degrees  ($data); }
-					when ('DEC')   { process_decimal  ($data); }
-					when ('MSG')   { process_message  ($data); }
-					when ('ROUTE') { process_route    ($data); }
-					when ('WP')    { process_waypoint ($data); }
-					default {
-						printf "Unknown command: $type\n";
-					}
-				}
-			}
-		}
-
 		my $reply = $packet->reply ();
 		$reply->header->qr (1);
 
-		if ($label =~ /$BASEHOST$/) {
+		if (parse_request ($packet, $reply)) {
 			$reply->header->rcode ('NOERROR');
-			my $addr = sprintf '%d.%d.%d.%d', rand $OCTET, rand $OCTET, rand $OCTET, rand $OCTET;
-			my $ans = Net::DNS::RR->new (
-				name    => $label,
-				type    => 'A',
-				address => $addr
-			);
-
 			$reply->header->aa (1);
 			$reply->push (authority => $domain_auth);
-			$reply->push (answer => $ans);
 		} else {
 			$reply->header->rcode ('NXDOMAIN');
 		}
@@ -353,5 +354,5 @@ sub main
 }
 
 
-return main ();
+exit main ();
 
