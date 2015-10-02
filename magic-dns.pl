@@ -86,7 +86,7 @@ sub lookup_square
 }
 
 
-sub add_txt
+sub add_text_record
 {
 	my ($reply, $msg) = @_;
 
@@ -97,6 +97,21 @@ sub add_txt
 	);
 
 	$reply->push (additional => $txt);
+	return;
+}
+
+sub add_random_address
+{
+	my ($reply, $request) = @_;
+
+	my $addr = sprintf '%d.%d.%d.%d', rand $OCTET, rand $OCTET, rand $OCTET, rand $OCTET;
+	my $ans = Net::DNS::RR->new (
+		name    => $request,
+		type    => 'A',
+		address => $addr
+	);
+
+	$reply->push (answer => $ans);
 	return;
 }
 
@@ -122,7 +137,7 @@ sub process_gridref
 
 		my $msg = sprintf "VALID gridref: $square $east $north";
 		printf "$msg\n";
-		add_txt ($reply, $msg);
+		add_text_record ($reply, $msg);
 		return 1;
 	}
 
@@ -135,7 +150,7 @@ sub process_gridref
 		if ($square) {
 			my $msg = sprintf "VALID gridref: $square $east $north";
 			printf "$msg\n";
-			add_txt ($reply, $msg);
+			add_text_record ($reply, $msg);
 			return 1;
 		}
 	}
@@ -166,7 +181,7 @@ sub process_decimal
 	if (within_uk ($lat, $long) || within_uk ($long, $lat)) {
 		my $msg = sprintf "VALID decimal: $long, $lat";
 		printf "$msg\n";
-		add_txt ($reply, $msg);
+		add_text_record ($reply, $msg);
 		return 1;
 	}
 
@@ -217,7 +232,7 @@ sub process_degrees
 
 	my $msg = sprintf 'VALID degrees: %0.6f, %0.6f', $lon_deg, $lat_deg;
 	printf "$msg\n";
-	add_txt ($reply, $msg);
+	add_text_record ($reply, $msg);
 	return 1;
 }
 
@@ -229,7 +244,7 @@ sub process_message
 
 	my $msg = sprintf "VALID message: $data";
 	printf "$msg\n";
-	add_txt ($reply, $msg);
+	add_text_record ($reply, $msg);
 	return 1;
 }
 
@@ -241,7 +256,7 @@ sub process_route
 	if (-d $dir) {
 		my $msg = sprintf "VALID route: $data";
 		printf "$msg\n";
-		add_txt ($reply, $msg);
+		add_text_record ($reply, $msg);
 		return 1;
 	} else {
 		printf "INVALID route: $data\n";
@@ -254,9 +269,9 @@ sub process_waypoint
 	my ($reply, $data) = @_;
 
 	if ($data =~ /^\d{1,5}$/msx) {
-		my $msg = sprintf "VALID waypoint: $data\n";
+		my $msg = sprintf "VALID waypoint: $data";
 		printf "$msg\n";
-		add_txt ($reply, $msg);
+		add_text_record ($reply, $msg);
 		return 1;
 	} else {
 		printf "INVALID waypoint: $data\n";
@@ -285,7 +300,9 @@ sub parse_request
 	if ($request =~ /^((.+)([.]))*$BASE_HOST$/msxi) {
 		if (!$1) {
 			printf "Our domain, but nothing to do\n";
-			return 0;
+			add_random_address ($reply, $BASE_HOST);
+			add_text_record ($reply, 'DNSMagic running');
+			return 1;
 		}
 
 		$command = $2;
@@ -314,14 +331,7 @@ sub parse_request
 		}
 	}
 
-	my $addr = sprintf '%d.%d.%d.%d', rand $OCTET, rand $OCTET, rand $OCTET, rand $OCTET;
-	my $ans = Net::DNS::RR->new (
-		name    => $request,
-		type    => 'A',
-		address => $addr
-	);
-
-	$reply->push (answer => $ans);
+	add_random_address ($reply, $request);
 	return 1;
 }
 
