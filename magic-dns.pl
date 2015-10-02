@@ -21,7 +21,7 @@ no warnings 'experimental::smartmatch';
 Readonly my $OCTET           => 256;
 Readonly my $MAXLEN          => 1024;
 Readonly my $PORTNO          => 50_001;
-Readonly my $BASEHOST        => 'hike.flatcap.org';
+Readonly my $BASE_HOST       => 'hike.flatcap.org';
 Readonly my $MINS_PER_DEGREE => 60;
 
 Readonly my $UK_NORTH => 59;
@@ -86,9 +86,24 @@ sub lookup_square
 }
 
 
+sub add_txt
+{
+	my ($reply, $msg) = @_;
+
+	my $txt = Net::DNS::RR->new (
+		name => $BASE_HOST,
+		type => 'TXT',
+		txtdata => $msg
+	);
+
+	$reply->push (additional => $txt);
+	return;
+}
+
+
 sub process_gridref
 {
-	my ($gr) = @_;
+	my ($reply, $gr) = @_;
 
 	$gr = uc $gr;
 	$gr =~ tr/.//d;
@@ -98,12 +113,16 @@ sub process_gridref
 		my $square = $1;
 		my $ref    = $2;
 
+		# XXX valid square?
+
 		my $len = (length $ref) / 2;
 
 		my $east = substr $ref, 0, $len;
 		my $north = substr $ref, $len;
 
-		printf "VALID gridref: $square $east $north\n";
+		my $msg = sprintf "VALID gridref: $square $east $north";
+		printf "$msg\n";
+		add_txt ($reply, $msg);
 		return 1;
 	}
 
@@ -114,7 +133,9 @@ sub process_gridref
 		my $square = lookup_square ($1, $3);
 
 		if ($square) {
-			printf "VALID gridref: $square $east $north\n";
+			my $msg = sprintf "VALID gridref: $square $east $north";
+			printf "$msg\n";
+			add_txt ($reply, $msg);
 			return 1;
 		}
 	}
@@ -125,7 +146,7 @@ sub process_gridref
 
 sub process_decimal
 {
-	my ($data) = @_;
+	my ($reply, $data) = @_;
 
 	$data =~ tr/_/-/;
 
@@ -143,7 +164,9 @@ sub process_decimal
 
 	# Check against bounds of the UK
 	if (within_uk ($lat, $long) || within_uk ($long, $lat)) {
-		printf "VALID decimal: $long, $lat\n";
+		my $msg = sprintf "VALID decimal: $long, $lat";
+		printf "$msg\n";
+		add_txt ($reply, $msg);
 		return 1;
 	}
 
@@ -153,7 +176,7 @@ sub process_decimal
 
 sub process_degrees
 {
-	my ($data) = @_;
+	my ($reply, $data) = @_;
 
 	$data =~ tr/_/-/;
 
@@ -192,27 +215,33 @@ sub process_degrees
 		return 0;
 	}
 
-	printf "VALID degrees: %0.6f, %0.6f\n", $lon_deg, $lat_deg;
+	my $msg = sprintf 'VALID degrees: %0.6f, %0.6f', $lon_deg, $lat_deg;
+	printf "$msg\n";
+	add_txt ($reply, $msg);
 	return 1;
 }
 
 sub process_message
 {
-	my ($data) = @_;
+	my ($reply, $data) = @_;
 
 	$data = decode_string ($data);
 
-	printf "VALID message: $data\n";
+	my $msg = sprintf "VALID message: $data";
+	printf "$msg\n";
+	add_txt ($reply, $msg);
 	return 1;
 }
 
 sub process_route
 {
-	my ($data) = @_;
+	my ($reply, $data) = @_;
 
 	my $dir = "/mnt/space/hikes/generated/routes/$data";
 	if (-d $dir) {
-		printf "VALID route: $data\n";
+		my $msg = sprintf "VALID route: $data";
+		printf "$msg\n";
+		add_txt ($reply, $msg);
 		return 1;
 	} else {
 		printf "INVALID route: $data\n";
@@ -222,10 +251,12 @@ sub process_route
 
 sub process_waypoint
 {
-	my ($data) = @_;
+	my ($reply, $data) = @_;
 
 	if ($data =~ /^\d{1,5}$/msx) {
-		printf "VALID waypoint: $data\n";
+		my $msg = sprintf "VALID waypoint: $data\n";
+		printf "$msg\n";
+		add_txt ($reply, $msg);
 		return 1;
 	} else {
 		printf "INVALID waypoint: $data\n";
@@ -251,7 +282,7 @@ sub parse_request
 	my $command;
 	my $data;
 
-	if ($request =~ /^((.+)([.]))*$BASEHOST$/msxi) {
+	if ($request =~ /^((.+)([.]))*$BASE_HOST$/msxi) {
 		if (!$1) {
 			printf "Our domain, but nothing to do\n";
 			return 0;
@@ -271,12 +302,12 @@ sub parse_request
 	}
 
 	given ($command) {
-		when ('GR')    { process_gridref  ($data); }
-		when ('DEG')   { process_degrees  ($data); }
-		when ('DEC')   { process_decimal  ($data); }
-		when ('MSG')   { process_message  ($data); }
-		when ('ROUTE') { process_route    ($data); }
-		when ('WP')    { process_waypoint ($data); }
+		when ('GR')    { process_gridref  ($reply, $data); }
+		when ('DEG')   { process_degrees  ($reply, $data); }
+		when ('DEC')   { process_decimal  ($reply, $data); }
+		when ('MSG')   { process_message  ($reply, $data); }
+		when ('ROUTE') { process_route    ($reply, $data); }
+		when ('WP')    { process_waypoint ($reply, $data); }
 		default {
 			printf "Unknown command: $command\n";
 			return 0;
