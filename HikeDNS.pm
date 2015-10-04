@@ -7,14 +7,14 @@ our $VERSION = 0.1;
 
 package HikeDNS;
 
-use Net::DNS;
-use Net::DNS::Packet;
-use Readonly;
-use English qw(-no_match_vars);
 use Carp;
-use feature 'switch';
-use POSIX qw(strftime);
+use English qw(-no_match_vars);
 use Exporter 'import';
+use feature 'switch';
+use Net::DNS::Packet;
+use Net::DNS;
+use POSIX qw(strftime);
+use Readonly;
 
 our @EXPORT_OK = 'parse';
 

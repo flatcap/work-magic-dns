@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<direct>
+	<!-- redirect dns requests for "hike.flatcap.org" -->
+	<rule ipv="ipv4" table="nat" chain="PREROUTING" priority="0">-p udp --dport 53 -m string --algo bm --from 0 --hex-string "|0468696b6507666C6174636170036f726700|" -j REDIRECT --to-ports 50001</rule>
+</direct>
+

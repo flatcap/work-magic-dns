@@ -5,14 +5,14 @@ use warnings;
 
 our $VERSION = 0.1;
 
-use IO::Socket;
-use Net::DNS;
-use Net::DNS::Packet;
-use Readonly;
-use English qw(-no_match_vars);
 use Carp;
+use English qw(-no_match_vars);
 use feature 'switch';
+use IO::Socket;
+use Net::DNS::Packet;
+use Net::DNS;
 use POSIX qw(strftime);
+use Readonly;
 
 use HikeDNS;
 
@@ -62,6 +62,10 @@ sub main
 		printf "Client $ipaddr:$port ($host) sent %d bytes\n", length $buf;
 
 		my $packet = Net::DNS::Packet->new (\$buf);
+		if (!defined $packet) {
+			printf "Bad packet\n";
+			next;
+		}
 		my $header = $packet->header;
 
 		my $reply = $packet->reply ();

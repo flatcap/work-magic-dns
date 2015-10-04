@@ -1,0 +1,50 @@
+pre-requisites for magic-dns.pl
+	perl-Net-DNS
+	perl-Readonly
+
+# General
+iptables -F
+iptables -nL
+iptables -nL -t nat
+iptables -P INPUT ACCEPT
+iptables-save
+
+# log dns requests for "hike.flatcap.org"
+iptables -A INPUT -p udp --dport 53 -m string --algo bm --from 20 --hex-string "|0468696b6507666C6174636170036f726700|" -j LOG
+
+# redirect dns requests for "hike.flatcap.org"
+iptables -t nat -A PREROUTING -p udp --dport 53 -m string --algo bm --from 20 --hex-string "|0468696b6507666C6174636170036f726700|" -j REDIRECT --to-ports 50001
+iptables -t nat -L
+
+# --to [num]
+
+firewall-cmd --zone=public --permanent --add-port 50001/udp
+firewall-cmd --reload
+iptables -t nat -A PREROUTING -p udp --dport 53 -m string --algo bm --from 20 --hex-string "|0468696b6507666C6174636170036f726700|" -j REDIRECT --to-ports 50001
+
+dig @ns1.linode.com flatcap.org axfr
+
+echo 1 > /proc/sys/net/ipv4/ip_forward
+
+firewall-cmd --direct --get-all-chains
+firewall-cmd --get-services
+firewall-cmd --list-all
+firewall-cmd --zone=public --permanent --add-port 50000/udp
+firewall-cmd --zone=public --permanent --add-service http
+firewall-cmd --zone=public --permanent --remove-service http
+
+host -a apple.flatcap.org
+host -a apple.flatcap.org ns1linode.com
+host -t NS flatcap.cc
+
+iodine -v -f -P wibble iodine.flatcap.org
+
+iodined -p 50000 -P wibble -f -c 10.0.0.1 iodine.flatcap.org
+
+journalctl -e -f -n0
+journalctl -e -o verbose
+journalctl -e _COMM=sshd
+journalctl -e _SYSTEM_UNIT=dnsmasq.service
+
+tcpdump -i wlp2s0 -w auth1.pcapng "udp port 53"
+
